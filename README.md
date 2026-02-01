@@ -1,6 +1,6 @@
 # Siphonophore
 
-Extensible Yjs sync server primitive in ~850 lines of code.
+Extensible Yjs sync server primitive in ~900 lines of code.
 
 This aims to be an alternative to [Hocuspocus](https://github.com/ueberdosis/hocuspocus), but with native document multiplexing in a single WebSocket connection. 
 
