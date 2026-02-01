@@ -1,0 +1,25 @@
+[package]
+name = "siphonophore"
+version = "0.1.0"
+edition = "2021"
+authors = ["GluonDB"]
+description = "Extensible Yjs sync server primitive with native document multiplexing"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/gluonDB/siphonophore"
+keywords = ["yjs", "crdt", "sync", "websocket", "collaborative"]
+categories = ["web-programming::websocket", "network-programming"]
+readme = "README.md"
+
+[dependencies]
+kameo = { version = "0.19.1", features = ["macros"] }
+tokio = { version = "1.48", features = ["rt", "time", "net", "sync"] }
+yrs = { version = "0.24", features = ["sync"] }
+axum = { version = "0.8", features = ["ws"] }
+bytes = "1"
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.48", features = ["full"] }
