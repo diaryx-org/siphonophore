@@ -86,10 +86,16 @@ mod server;
 // Public API
 pub use server::{Server, Handle};
 pub use hooks::{
-    Hook, HookResult, Context, RequestInfo,
+    Hook, HookResult, HookError, Context, RequestInfo,
+    // Existing payloads
     OnConnectPayload, OnAuthenticatePayload, OnLoadDocumentPayload,
     OnChangePayload, OnDisconnectPayload, OnSavePayload, BeforeCloseDirtyPayload,
+    // New payloads for extended functionality
+    OnBeforeSyncPayload, BeforeSyncAction,
+    OnControlMessagePayload, ControlMessageResponse,
+    OnPeerJoinedPayload, OnPeerLeftPayload,
 };
 
 pub use axum;
 pub use async_trait::async_trait;
+pub use kameo::actor::ActorId;
