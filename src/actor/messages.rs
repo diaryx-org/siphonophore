@@ -1,9 +1,9 @@
+use crate::actor::client::ClientActor;
+use crate::hooks::{Context, RequestInfo};
 use axum::extract::ws::WebSocket;
 use bytes::Bytes;
 use kameo::actor::{ActorId, ActorRef};
 use std::sync::Arc;
-use crate::actor::client::ClientActor;
-use crate::hooks::{Context, RequestInfo};
 
 pub struct CreateClient {
     pub socket: WebSocket,

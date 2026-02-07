@@ -1,26 +1,34 @@
-use axum::{Router, routing::get, extract::{ws::WebSocketUpgrade, State, Query}, response::Response, http::HeaderMap};
+use axum::{
+    extract::{ws::WebSocketUpgrade, Query, State},
+    http::HeaderMap,
+    response::Response,
+    routing::get,
+    Router,
+};
 use kameo::actor::{ActorRef, Spawn};
-use std::io;
 use std::collections::HashMap;
+use std::io;
 use std::sync::Arc;
 
-use crate::actor::{Root, CreateClient, PersistDocument, ApplyServerUpdate, BroadcastText, GetDocPeerCount};
+use crate::actor::{
+    ApplyServerUpdate, BroadcastText, CreateClient, GetDocPeerCount, PersistDocument, Root,
+};
 use crate::hooks::{Hook, RequestInfo};
 use kameo::actor::ActorId;
 
 /// Siphonophore sync server
-/// 
+///
 /// # Flexible mounting
 /// ```no_run
 /// use siphonophore::Server;
 /// use axum::Router;
-/// 
+///
 /// // Option 1: Default router with /ws
 /// let app = Server::new().into_router();
-/// 
+///
 /// // Option 2: Custom path
 /// let app = Server::new().into_router_at("/sync/ws");
-/// 
+///
 /// // Option 3: Compose with other routes
 /// let server = Server::new();
 /// let handle = server.handle();
@@ -52,7 +60,11 @@ impl Handle {
     /// Apply a Yjs update to a document if it's loaded. Returns true if applied.
     pub async fn apply_update(&self, doc_id: &str, update: Vec<u8>) -> bool {
         let doc_id: Arc<str> = doc_id.into();
-        self.root.ask(ApplyServerUpdate { doc_id, update }).send().await.unwrap_or(false)
+        self.root
+            .ask(ApplyServerUpdate { doc_id, update })
+            .send()
+            .await
+            .unwrap_or(false)
     }
 
     /// Broadcast a text message to all clients connected to a document.
@@ -63,15 +75,32 @@ impl Handle {
     /// * `doc_id` - The document ID
     /// * `message` - The text message to broadcast (usually JSON)
     /// * `exclude_client` - Optional client to exclude from the broadcast
-    pub async fn broadcast_text(&self, doc_id: &str, message: String, exclude_client: Option<ActorId>) -> bool {
+    pub async fn broadcast_text(
+        &self,
+        doc_id: &str,
+        message: String,
+        exclude_client: Option<ActorId>,
+    ) -> bool {
         let doc_id: Arc<str> = doc_id.into();
-        self.root.ask(BroadcastText { doc_id, message, exclude_client }).send().await.unwrap_or(false)
+        self.root
+            .ask(BroadcastText {
+                doc_id,
+                message,
+                exclude_client,
+            })
+            .send()
+            .await
+            .unwrap_or(false)
     }
 
     /// Get the number of peers connected to a document.
     pub async fn get_peer_count(&self, doc_id: &str) -> usize {
         let doc_id: Arc<str> = doc_id.into();
-        self.root.ask(GetDocPeerCount(doc_id)).send().await.unwrap_or(0)
+        self.root
+            .ask(GetDocPeerCount(doc_id))
+            .send()
+            .await
+            .unwrap_or(0)
     }
 }
 
@@ -93,7 +122,9 @@ impl Server {
 
     /// Get a handle for use in other HTTP handlers
     pub fn handle(&self) -> Handle {
-        Handle { root: self.root.clone() }
+        Handle {
+            root: self.root.clone(),
+        }
     }
 
     /// Get router with WebSocket endpoint at `/ws`
@@ -116,7 +147,11 @@ impl Server {
     }
 }
 
-impl Default for Server { fn default() -> Self { Self::new() } }
+impl Default for Server {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -126,11 +161,21 @@ async fn ws_handler(
 ) -> Response {
     let headers_map: HashMap<String, String> = headers
         .iter()
-        .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_lowercase(), v.to_string())))
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|v| (k.as_str().to_lowercase(), v.to_string()))
+        })
         .collect();
     let request_info = RequestInfo::new(headers_map, query_params);
-    
+
     ws.on_upgrade(move |socket| async move {
-        let _ = root.ask(CreateClient { socket, request_info }).send().await;
+        let _ = root
+            .ask(CreateClient {
+                socket,
+                request_info,
+            })
+            .send()
+            .await;
     })
 }

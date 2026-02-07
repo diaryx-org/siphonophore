@@ -1,25 +1,27 @@
+use axum::extract::ws::{Message as WsMessage, WebSocket};
+use futures::{stream::SplitSink, SinkExt, StreamExt};
 use kameo::{
-    actor::{Actor, ActorRef, WeakActorRef, ActorId},
+    actor::{Actor, ActorId, ActorRef, WeakActorRef},
     error::{ActorStopReason, Infallible},
     message::{Context as KameoContext, Message, StreamMessage},
 };
-use axum::extract::ws::{Message as WsMessage, WebSocket};
-use futures::{SinkExt, StreamExt, stream::SplitSink};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::ops::ControlFlow;
 use std::future::Future;
+use std::ops::ControlFlow;
+use std::sync::Arc;
 use tracing::{debug, warn};
 
 use crate::actor::document::DocActor;
-use crate::actor::root::Root;
-use crate::actor::messages::{RequestDoc, ConnectClient, DisconnectClient, YjsData, WirePayload, PersistNow, SendText};
-use crate::payload::{decode_doc_id, encode_with_doc_id};
-use crate::hooks::{
-    Hook, Context, RequestInfo, OnConnectPayload, OnAuthenticatePayload,
-    OnBeforeSyncPayload, BeforeSyncAction, OnControlMessagePayload, ControlMessageResponse,
+use crate::actor::messages::{
+    ConnectClient, DisconnectClient, PersistNow, RequestDoc, SendText, WirePayload, YjsData,
 };
+use crate::actor::root::Root;
+use crate::hooks::{
+    BeforeSyncAction, Context, ControlMessageResponse, Hook, OnAuthenticatePayload,
+    OnBeforeSyncPayload, OnConnectPayload, OnControlMessagePayload, RequestInfo,
+};
+use crate::payload::{decode_doc_id, encode_with_doc_id};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -71,7 +73,12 @@ impl Actor for ClientActor {
         })
     }
 
-    fn on_link_died(&mut self, _: WeakActorRef<Self>, id: ActorId, _: ActorStopReason) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
+    fn on_link_died(
+        &mut self,
+        _: WeakActorRef<Self>,
+        id: ActorId,
+        _: ActorStopReason,
+    ) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
         self.docs.retain(|_, doc| doc.id() != id);
         async { Ok(ControlFlow::Continue(())) }
     }
@@ -79,11 +86,17 @@ impl Actor for ClientActor {
 
 impl Message<StreamMessage<Result<WsMessage, axum::Error>, (), &'static str>> for ClientActor {
     type Reply = ();
-    
-    async fn handle(&mut self, msg: StreamMessage<Result<WsMessage, axum::Error>, (), &'static str>, ctx: &mut KameoContext<Self, Self::Reply>) {
+
+    async fn handle(
+        &mut self,
+        msg: StreamMessage<Result<WsMessage, axum::Error>, (), &'static str>,
+        ctx: &mut KameoContext<Self, Self::Reply>,
+    ) {
         match msg {
             StreamMessage::Next(Ok(WsMessage::Binary(data))) => {
-                let Some((doc_id, _)) = decode_doc_id(&data) else { return };
+                let Some((doc_id, _)) = decode_doc_id(&data) else {
+                    return;
+                };
                 let header_len = 1 + doc_id.len();
                 let payload = data.slice(header_len..);
                 let doc_id: Arc<str> = doc_id.into();
@@ -93,9 +106,15 @@ impl Message<StreamMessage<Result<WsMessage, axum::Error>, (), &'static str>> fo
                     None => match self.connect_doc(Arc::clone(&doc_id), ctx.actor_ref()).await {
                         Some(d) => d,
                         None => return,
-                    }
+                    },
                 };
-                let _ = doc.tell(YjsData { client_id: ctx.actor_ref().id(), data: payload }).send().await;
+                let _ = doc
+                    .tell(YjsData {
+                        client_id: ctx.actor_ref().id(),
+                        data: payload,
+                    })
+                    .send()
+                    .await;
             }
             StreamMessage::Next(Ok(WsMessage::Text(text))) => {
                 // Try built-in control messages first
@@ -106,7 +125,10 @@ impl Message<StreamMessage<Result<WsMessage, axum::Error>, (), &'static str>> fo
                             self.pending_docs.remove(&doc_id);
                             self.contexts.remove(&doc_id);
                             if let Some(doc_actor) = self.docs.remove(&doc_id) {
-                                let _ = doc_actor.tell(DisconnectClient(ctx.actor_ref().clone())).send().await;
+                                let _ = doc_actor
+                                    .tell(DisconnectClient(ctx.actor_ref().clone()))
+                                    .send()
+                                    .await;
                             }
                         }
                         ControlMessage::Save { doc } => {
@@ -118,14 +140,26 @@ impl Message<StreamMessage<Result<WsMessage, axum::Error>, (), &'static str>> fo
                     }
                 } else {
                     // Not a built-in control message, try hooks
-                    self.handle_custom_control_message(&text, ctx.actor_ref().id(), ctx.actor_ref()).await;
+                    self.handle_custom_control_message(
+                        &text,
+                        ctx.actor_ref().id(),
+                        ctx.actor_ref(),
+                    )
+                    .await;
                 }
             }
             StreamMessage::Next(Ok(WsMessage::Ping(data))) => {
-                if self.sink.send(WsMessage::Pong(data)).await.is_err() { ctx.actor_ref().kill(); }
+                if self.sink.send(WsMessage::Pong(data)).await.is_err() {
+                    ctx.actor_ref().kill();
+                }
             }
             StreamMessage::Next(Ok(WsMessage::Close(_))) | StreamMessage::Finished(_) => {
-                for (_, doc) in self.docs.drain() { let _ = doc.tell(DisconnectClient(ctx.actor_ref().clone())).send().await; }
+                for (_, doc) in self.docs.drain() {
+                    let _ = doc
+                        .tell(DisconnectClient(ctx.actor_ref().clone()))
+                        .send()
+                        .await;
+                }
                 ctx.actor_ref().kill();
             }
             StreamMessage::Next(Err(_)) => ctx.actor_ref().kill(),
@@ -137,24 +171,45 @@ impl Message<StreamMessage<Result<WsMessage, axum::Error>, (), &'static str>> fo
 impl Message<WirePayload> for ClientActor {
     type Reply = ();
     async fn handle(&mut self, msg: WirePayload, ctx: &mut KameoContext<Self, Self::Reply>) {
-        if self.sink.send(WsMessage::Binary(msg.0.to_vec().into())).await.is_err() { ctx.actor_ref().kill(); }
+        if self
+            .sink
+            .send(WsMessage::Binary(msg.0.to_vec().into()))
+            .await
+            .is_err()
+        {
+            ctx.actor_ref().kill();
+        }
     }
 }
 
 impl Message<SendText> for ClientActor {
     type Reply = ();
     async fn handle(&mut self, msg: SendText, ctx: &mut KameoContext<Self, Self::Reply>) {
-        if self.sink.send(WsMessage::Text(msg.0.into())).await.is_err() { ctx.actor_ref().kill(); }
+        if self.sink.send(WsMessage::Text(msg.0.into())).await.is_err() {
+            ctx.actor_ref().kill();
+        }
     }
 }
 
 impl ClientActor {
-    async fn connect_doc(&mut self, doc_id: Arc<str>, me: &ActorRef<Self>) -> Option<ActorRef<DocActor>> {
+    async fn connect_doc(
+        &mut self,
+        doc_id: Arc<str>,
+        me: &ActorRef<Self>,
+    ) -> Option<ActorRef<DocActor>> {
         let client_id = me.id();
 
         // Step 1: on_connect hook
         for hook in self.hooks.iter() {
-            if hook.on_connect(OnConnectPayload { doc_id: &doc_id, client_id, request: &self.request_info }).await.is_err() {
+            if hook
+                .on_connect(OnConnectPayload {
+                    doc_id: &doc_id,
+                    client_id,
+                    request: &self.request_info,
+                })
+                .await
+                .is_err()
+            {
                 debug!("on_connect hook rejected connection for doc {}", doc_id);
                 return None;
             }
@@ -163,20 +218,35 @@ impl ClientActor {
         // Step 2: on_authenticate hook
         let mut context = Context::default();
         for hook in self.hooks.iter() {
-            if hook.on_authenticate(OnAuthenticatePayload { doc_id: &doc_id, client_id, request: &self.request_info, context: &mut context }).await.is_err() {
-                debug!("on_authenticate hook rejected connection for doc {}", doc_id);
+            if hook
+                .on_authenticate(OnAuthenticatePayload {
+                    doc_id: &doc_id,
+                    client_id,
+                    request: &self.request_info,
+                    context: &mut context,
+                })
+                .await
+                .is_err()
+            {
+                debug!(
+                    "on_authenticate hook rejected connection for doc {}",
+                    doc_id
+                );
                 return None;
             }
         }
 
         // Step 3: on_before_sync hook (for custom handshakes like Files-Ready)
         for hook in self.hooks.iter() {
-            match hook.on_before_sync(OnBeforeSyncPayload {
-                doc_id: &doc_id,
-                client_id,
-                request: &self.request_info,
-                context: &context,
-            }).await {
+            match hook
+                .on_before_sync(OnBeforeSyncPayload {
+                    doc_id: &doc_id,
+                    client_id,
+                    request: &self.request_info,
+                    context: &context,
+                })
+                .await
+            {
                 Ok(BeforeSyncAction::Continue) => {
                     // Continue to next hook or proceed
                 }
@@ -189,12 +259,16 @@ impl ClientActor {
                         }
                     }
                     // Store as pending - wait for response via on_control_message
-                    self.pending_docs.insert(Arc::clone(&doc_id), PendingDoc { context });
+                    self.pending_docs
+                        .insert(Arc::clone(&doc_id), PendingDoc { context });
                     debug!("Doc {} waiting for handshake completion", doc_id);
                     return None; // Don't connect yet - will be done when handshake completes
                 }
                 Ok(BeforeSyncAction::Abort { reason }) => {
-                    warn!("on_before_sync aborted connection for doc {}: {}", doc_id, reason);
+                    warn!(
+                        "on_before_sync aborted connection for doc {}: {}",
+                        doc_id, reason
+                    );
                     return None;
                 }
                 Err(e) => {
@@ -209,13 +283,35 @@ impl ClientActor {
     }
 
     /// Complete document connection after handshake (if any).
-    async fn finish_connect_doc(&mut self, doc_id: Arc<str>, context: Context, me: &ActorRef<Self>) -> Option<ActorRef<DocActor>> {
-        let doc = self.root.ask(RequestDoc(Arc::clone(&doc_id))).send().await.ok()?;
-        let init_msgs = doc.ask(ConnectClient { client: me.clone(), context: context.clone() }).send().await.ok()?;
+    async fn finish_connect_doc(
+        &mut self,
+        doc_id: Arc<str>,
+        context: Context,
+        me: &ActorRef<Self>,
+    ) -> Option<ActorRef<DocActor>> {
+        let doc = self
+            .root
+            .ask(RequestDoc(Arc::clone(&doc_id)))
+            .send()
+            .await
+            .ok()?;
+        let init_msgs = doc
+            .ask(ConnectClient {
+                client: me.clone(),
+                context: context.clone(),
+            })
+            .send()
+            .await
+            .ok()?;
 
         for payload in init_msgs {
             let wire = encode_with_doc_id(&doc_id, &payload);
-            if self.sink.send(WsMessage::Binary(wire.to_vec().into())).await.is_err() {
+            if self
+                .sink
+                .send(WsMessage::Binary(wire.to_vec().into()))
+                .await
+                .is_err()
+            {
                 me.kill();
                 return None;
             }
@@ -227,7 +323,11 @@ impl ClientActor {
     }
 
     /// Complete a pending document connection (called when handshake finishes).
-    pub async fn complete_pending_doc(&mut self, doc_id: Arc<str>, me: &ActorRef<Self>) -> Option<ActorRef<DocActor>> {
+    pub async fn complete_pending_doc(
+        &mut self,
+        doc_id: Arc<str>,
+        me: &ActorRef<Self>,
+    ) -> Option<ActorRef<DocActor>> {
         if let Some(pending) = self.pending_docs.remove(&doc_id) {
             debug!("Completing pending doc connection for {}", doc_id);
             self.finish_connect_doc(doc_id, pending.context, me).await
@@ -237,18 +337,25 @@ impl ClientActor {
     }
 
     /// Handle custom control messages via hooks.
-    async fn handle_custom_control_message(&mut self, text: &str, client_id: ActorId, me: &ActorRef<Self>) {
+    async fn handle_custom_control_message(
+        &mut self,
+        text: &str,
+        client_id: ActorId,
+        me: &ActorRef<Self>,
+    ) {
         // First check pending docs (for handshake messages like FilesReady)
         let pending_doc_ids: Vec<Arc<str>> = self.pending_docs.keys().cloned().collect();
         for doc_id in pending_doc_ids {
             if let Some(pending) = self.pending_docs.get(&doc_id) {
                 for hook in self.hooks.iter() {
-                    let response = hook.on_control_message(OnControlMessagePayload {
-                        doc_id: Some(&doc_id),
-                        client_id,
-                        message: text,
-                        context: &pending.context,
-                    }).await;
+                    let response = hook
+                        .on_control_message(OnControlMessagePayload {
+                            doc_id: Some(&doc_id),
+                            client_id,
+                            message: text,
+                            context: &pending.context,
+                        })
+                        .await;
 
                     match response {
                         ControlMessageResponse::Handled { responses } => {
@@ -278,16 +385,18 @@ impl ClientActor {
         for doc_id in doc_ids {
             if let Some(context) = self.contexts.get(&doc_id) {
                 for hook in self.hooks.iter() {
-                    let response = hook.on_control_message(OnControlMessagePayload {
-                        doc_id: Some(&doc_id),
-                        client_id,
-                        message: text,
-                        context,
-                    }).await;
+                    let response = hook
+                        .on_control_message(OnControlMessagePayload {
+                            doc_id: Some(&doc_id),
+                            client_id,
+                            message: text,
+                            context,
+                        })
+                        .await;
 
                     match response {
-                        ControlMessageResponse::Handled { responses } |
-                        ControlMessageResponse::CompleteHandshake { responses } => {
+                        ControlMessageResponse::Handled { responses }
+                        | ControlMessageResponse::CompleteHandshake { responses } => {
                             for msg in responses {
                                 let _ = self.sink.send(WsMessage::Text(msg.into())).await;
                             }
@@ -301,16 +410,18 @@ impl ClientActor {
 
         // No doc context - try with None
         for hook in self.hooks.iter() {
-            let response = hook.on_control_message(OnControlMessagePayload {
-                doc_id: None,
-                client_id,
-                message: text,
-                context: &Context::default(),
-            }).await;
+            let response = hook
+                .on_control_message(OnControlMessagePayload {
+                    doc_id: None,
+                    client_id,
+                    message: text,
+                    context: &Context::default(),
+                })
+                .await;
 
             match response {
-                ControlMessageResponse::Handled { responses } |
-                ControlMessageResponse::CompleteHandshake { responses } => {
+                ControlMessageResponse::Handled { responses }
+                | ControlMessageResponse::CompleteHandshake { responses } => {
                     for msg in responses {
                         let _ = self.sink.send(WsMessage::Text(msg.into())).await;
                     }

@@ -78,24 +78,36 @@
 //! }
 //! ```
 
-mod hooks;
 mod actor;
+mod hooks;
 mod payload;
 mod server;
 
 // Public API
-pub use server::{Server, Handle};
 pub use hooks::{
-    Hook, HookResult, HookError, Context, RequestInfo,
-    // Existing payloads
-    OnConnectPayload, OnAuthenticatePayload, OnLoadDocumentPayload,
-    OnChangePayload, OnDisconnectPayload, OnSavePayload, BeforeCloseDirtyPayload,
+    BeforeCloseDirtyPayload,
+    BeforeSyncAction,
+    Context,
+    ControlMessageResponse,
+    Hook,
+    HookError,
+    HookResult,
+    OnAuthenticatePayload,
     // New payloads for extended functionality
-    OnBeforeSyncPayload, BeforeSyncAction,
-    OnControlMessagePayload, ControlMessageResponse,
-    OnPeerJoinedPayload, OnPeerLeftPayload,
+    OnBeforeSyncPayload,
+    OnChangePayload,
+    // Existing payloads
+    OnConnectPayload,
+    OnControlMessagePayload,
+    OnDisconnectPayload,
+    OnLoadDocumentPayload,
+    OnPeerJoinedPayload,
+    OnPeerLeftPayload,
+    OnSavePayload,
+    RequestInfo,
 };
+pub use server::{Handle, Server};
 
-pub use axum;
 pub use async_trait::async_trait;
+pub use axum;
 pub use kameo::actor::ActorId;
