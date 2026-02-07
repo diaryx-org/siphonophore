@@ -295,6 +295,15 @@ impl Message<YjsData> for DocActor {
     type Reply = ();
     async fn handle(&mut self, msg: YjsData, _: &mut KameoContext<Self, Self::Reply>) {
         let data = &msg.data[..];
+
+        // Capture state vector before applying, so we can detect whether a
+        // SyncStep2 actually introduced new state worth broadcasting.
+        let sv_before = if data.len() > 2 && data[0] == MSG_SYNC && data[1] == SYNC_STEP2 {
+            Some(self.doc.transact().state_vector())
+        } else {
+            None
+        };
+
         let responses = match self.protocol.handle(&self.awareness, data).await {
             Ok(r) => r,
             Err(_) => return,
@@ -344,14 +353,17 @@ impl Message<YjsData> for DocActor {
         // (and thus won't receive the data via their own SyncStep2 exchange) still
         // get the new state. Re-encode as SYNC_UPDATE which clients expect for
         // incremental updates.
-        if data.len() > 2
-            && data[0] == MSG_SYNC
-            && data[1] == SYNC_STEP2
-            && self.clients.len() > 1
-        {
-            let mut retagged = data.to_vec();
-            retagged[1] = SYNC_UPDATE;
-            self.broadcast(msg.client_id, &retagged);
+        //
+        // Only broadcast when the SyncStep2 actually introduced new state (state
+        // vector changed). This prevents redundant broadcasts when peers already
+        // have identical state — e.g. workspace docs where both sides synced the
+        // same content during their own handshakes.
+        if let Some(sv) = sv_before {
+            if self.clients.len() > 1 && sv != self.doc.transact().state_vector() {
+                let mut retagged = data.to_vec();
+                retagged[1] = SYNC_UPDATE;
+                self.broadcast(msg.client_id, &retagged);
+            }
         }
     }
 }
