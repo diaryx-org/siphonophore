@@ -12,7 +12,7 @@ use yrs::{
     encoding::read::Cursor,
     encoding::write::Write,
     sync::protocol::{AsyncProtocol, DefaultProtocol, MessageReader},
-    sync::{Awareness, Message as YMessage},
+    sync::{Awareness, Message as YMessage, SyncMessage},
     updates::decoder::{Decode, DecoderV1},
     updates::encoder::{Encode, Encoder, EncoderV1},
     Doc, ReadTxn, StateVector, Transact, Update,
@@ -134,6 +134,22 @@ impl DocActor {
             msgs.push(m);
         }
         msgs
+    }
+
+    /// Extract raw Y-CRDT update bytes from a Y-sync protocol message.
+    ///
+    /// SyncStep2 and SyncUpdate messages wrap a Y-CRDT update inside protocol
+    /// framing.  This helper strips the framing so hook consumers receive a
+    /// plain update that can be decoded with `Update::decode_v1`.
+    fn extract_update_bytes(data: &[u8]) -> Option<Vec<u8>> {
+        for msg in Self::decode_messages(data) {
+            match msg {
+                YMessage::Sync(SyncMessage::SyncStep2(update))
+                | YMessage::Sync(SyncMessage::Update(update)) => return Some(update),
+                _ => {}
+            }
+        }
+        None
     }
 }
 
@@ -318,13 +334,15 @@ impl Message<YjsData> for DocActor {
 
         if Self::is_doc_change(data) {
             self.dirty = true;
+            let update_bytes = Self::extract_update_bytes(data);
+            let hook_data = update_bytes.as_deref().unwrap_or(data);
             if let Some(context) = self.contexts.get(&msg.client_id) {
                 for hook in self.hooks.iter() {
                     let _ = hook
                         .on_change(OnChangePayload {
                             doc_id: &self.doc_id,
                             client_id: msg.client_id,
-                            update: data,
+                            update: hook_data,
                             context,
                         })
                         .await;
