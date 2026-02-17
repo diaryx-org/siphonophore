@@ -188,6 +188,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
+name = "diaryx-siphonophore"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bytes",
+ "futures",
+ "kameo",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "yrs",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -795,22 +811,6 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
-]
-
-[[package]]
-name = "siphonophore"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "bytes",
- "futures",
- "kameo",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "yrs",
 ]
 
 [[package]]

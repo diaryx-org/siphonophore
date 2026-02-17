@@ -1,11 +1,11 @@
 [package]
-name = "siphonophore"
+name = "diaryx-siphonophore"
 version = "0.1.0"
 edition = "2021"
-authors = ["GluonDB"]
-description = "Extensible Yjs sync server primitive with native document multiplexing"
+authors = ["GluonDB", "diaryx-org"]
+description = "Extensible Yjs sync server primitive with native document multiplexing (Diaryx fork)"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/gluonDB/siphonophore"
+repository = "https://github.com/diaryx-org/siphonophore"
 keywords = ["yjs", "crdt", "sync", "websocket", "collaborative"]
 categories = ["web-programming::websocket", "network-programming"]
 readme = "README.md"
